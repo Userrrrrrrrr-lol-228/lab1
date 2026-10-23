@@ -16,6 +16,7 @@ public class MeasurementService extends BaseService<Measurement> {
     @Override
     protected void beforeCreate(Measurement m) {
         m.time = LocalDateTime.now();
+        if (m.confirmed == null) m.confirmed = false;
     }
 
     @Override

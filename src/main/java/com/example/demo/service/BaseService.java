@@ -1,7 +1,7 @@
 package com.example.demo.service;
 
 import com.example.demo.model.BaseEntity;
-import com.example.demo.repository.InMemoryRepository;
+import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -9,16 +9,13 @@ import java.util.List;
 
 public abstract class BaseService<T extends BaseEntity> {
 
-    protected final InMemoryRepository<T> repository;
+    protected final JpaRepository<T, Long> repository;
 
-    protected BaseService(InMemoryRepository<T> repository) {
+    protected BaseService(JpaRepository<T, Long> repository) {
         this.repository = repository;
     }
 
     protected void beforeCreate(T item) {
-    }
-
-    protected void beforeDelete(Long id) {
     }
 
     protected abstract void patch(T target, T data);
@@ -28,11 +25,8 @@ public abstract class BaseService<T extends BaseEntity> {
     }
 
     public T getById(Long id) {
-        T item = repository.findById(id);
-        if (item == null) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        }
-        return item;
+        return repository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
     }
 
     public T create(T item) {
@@ -49,7 +43,6 @@ public abstract class BaseService<T extends BaseEntity> {
 
     public void delete(Long id) {
         getById(id);
-        beforeDelete(id);
-        repository.deleteById(id);
+        repository.deleteById(id); // связанные записи удаляет БД (ON DELETE CASCADE)
     }
 }

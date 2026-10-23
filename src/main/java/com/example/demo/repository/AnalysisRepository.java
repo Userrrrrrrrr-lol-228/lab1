@@ -1,8 +1,10 @@
 package com.example.demo.repository;
 
 import com.example.demo.model.Analysis;
-import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.JpaRepository;
 
-@Repository
-public class AnalysisRepository extends InMemoryRepository<Analysis> {
+import java.util.List;
+
+public interface AnalysisRepository extends JpaRepository<Analysis, Long> {
+    List<Analysis> findBySampleId(Long sampleId);
 }

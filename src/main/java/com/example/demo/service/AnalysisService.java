@@ -1,23 +1,20 @@
 package com.example.demo.service;
 
 import com.example.demo.model.Analysis;
-import com.example.demo.model.Measurement;
 import com.example.demo.repository.AnalysisRepository;
-import com.example.demo.repository.MeasurementRepository;
 import org.springframework.stereotype.Service;
 
 @Service
 public class AnalysisService extends BaseService<Analysis> {
 
-    private final MeasurementRepository measurementRepository;
-    private final MeasurementService measurementService;
-
-    public AnalysisService(AnalysisRepository repository,
-                           MeasurementRepository measurementRepository,
-                           MeasurementService measurementService) {
+    public AnalysisService(AnalysisRepository repository) {
         super(repository);
-        this.measurementRepository = measurementRepository;
-        this.measurementService = measurementService;
+    }
+
+    @Override
+    protected void beforeCreate(Analysis a) {
+        a.status = "NEW";
+        a.averageValue = null;
     }
 
     @Override
@@ -26,14 +23,5 @@ public class AnalysisService extends BaseService<Analysis> {
         if (data.methodId != null) target.methodId = data.methodId;
         if (data.status != null) target.status = data.status;
         if (data.averageValue != null) target.averageValue = data.averageValue;
-    }
-
-    @Override
-    protected void beforeDelete(Long id) {
-        for (Measurement m : measurementRepository.findAll()) {
-            if (id.equals(m.analysisId)) {
-                measurementService.delete(m.id);
-            }
-        }
     }
 }

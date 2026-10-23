@@ -1,8 +1,7 @@
 package com.example.demo.repository;
 
 import com.example.demo.model.Sample;
-import org.springframework.stereotype.Repository;
+import org.springframework.data.jpa.repository.JpaRepository;
 
-@Repository
-public class SampleRepository extends InMemoryRepository<Sample> {
+public interface SampleRepository extends JpaRepository<Sample, Long> {
 }
