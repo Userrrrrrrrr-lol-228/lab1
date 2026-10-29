@@ -43,6 +43,6 @@ public abstract class BaseService<T extends BaseEntity> {
 
     public void delete(Long id) {
         getById(id);
-        repository.deleteById(id); // связанные записи удаляет БД (ON DELETE CASCADE)
+        repository.deleteById(id);
     }
 }
