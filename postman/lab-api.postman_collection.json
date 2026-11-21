@@ -1,6 +1,6 @@
 {
   "info": {
-    "name": "Lab API (Задание 4)",
+    "name": "Lab API (Задание 5, JWT)",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -23,14 +23,38 @@
     {
       "key": "customerPassword",
       "value": "Customer123"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "labAccess1",
+      "value": ""
+    },
+    {
+      "key": "labRefresh1",
+      "value": ""
+    },
+    {
+      "key": "labRefresh2",
+      "value": ""
+    },
+    {
+      "key": "customerAccess",
+      "value": ""
+    },
+    {
+      "key": "customerRefresh",
+      "value": ""
     }
   ],
   "item": [
     {
-      "name": "0. Аутентификация и регистрация",
+      "name": "0. JWT: вход, обновление, сессии, регистрация",
       "item": [
         {
-          "name": "Получить CSRF-токен",
+          "name": "1. Login lab -> 200, пара токенов",
           "event": [
             {
               "listen": "test",
@@ -38,43 +62,13 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('status 200', () => pm.response.to.have.status(200));",
-                  "pm.collectionVariables.set('csrfToken', pm.response.json().token);",
-                  "pm.test('header X-XSRF-TOKEN', () => pm.expect(pm.response.json().headerName).to.eql('X-XSRF-TOKEN'));"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/auth/csrf",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "auth",
-                "csrf"
-              ]
-            },
-            "auth": {
-              "type": "noauth"
-            }
-          }
-        },
-        {
-          "name": "Регистрация заказчика (попытка взять роль LAB игнорируется)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status 201', () => pm.response.to.have.status(201));",
-                  "pm.collectionVariables.set('customerUser', pm.response.json().username);",
-                  "pm.test('role = CUSTOMER', () => pm.expect(pm.response.json().role).to.eql('CUSTOMER'));",
-                  "pm.test('пароль не возвращается', () => pm.expect(pm.response.json()).to.not.have.property('password'));"
+                  "const body = pm.response.json();",
+                  "pm.test('ровно accessToken и refreshToken', () => pm.expect(Object.keys(body).sort()).to.eql(['accessToken', 'refreshToken']));",
+                  "pm.collectionVariables.set('accessToken', body.accessToken);",
+                  "pm.collectionVariables.set('labRefresh1', body.refreshToken);",
+                  "pm.collectionVariables.set('labAccess1', body.accessToken);",
+                  "const p = JSON.parse(atob(pm.collectionVariables.get('labRefresh1').split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));",
+                  "pm.test('type = refresh, есть sub/jti/iat/exp', () => { pm.expect(p.type).to.eql('refresh'); pm.expect(p).to.include.keys('sub', 'jti', 'iat', 'exp'); });"
                 ]
               }
             }
@@ -88,22 +82,889 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/auth/register",
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{labUser}}\",\n  \"password\": \"{{labPassword}}\",\n  \"deviceId\": \"postman\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "1a. В БД первая запись сессии ACTIVE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('статус сессии ACTIVE', () => pm.expect(pm.response.json().status).to.eql('ACTIVE'));",
+                  "pm.test('владелец lab, deviceId postman', () => { pm.expect(pm.response.json().username).to.eql(pm.collectionVariables.get('labUser')); pm.expect(pm.response.json().deviceId).to.eql('postman'); });",
+                  "pm.test('токены в ответе не раскрываются', () => pm.expect(pm.response.json()).to.not.have.property('refreshToken'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/lookup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "lookup"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{labRefresh1}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "2. Защищённый endpoint с access -> 200",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('это lab', () => pm.expect(pm.response.json().username).to.eql(pm.collectionVariables.get('labUser')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
                 "auth",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Без токена -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Неверный access -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "not.a.jwt",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Refresh вместо access в Bearer -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{labRefresh1}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "3. Refresh -> 200, новая пара",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('ровно accessToken и refreshToken', () => pm.expect(Object.keys(body).sort()).to.eql(['accessToken', 'refreshToken']));",
+                  "pm.test('пара новая', () => { pm.expect(body.refreshToken).to.not.eql(pm.collectionVariables.get('labRefresh1')); pm.expect(body.accessToken).to.not.eql(pm.collectionVariables.get('labAccess1')); });",
+                  "pm.collectionVariables.set('accessToken', body.accessToken);",
+                  "pm.collectionVariables.set('labRefresh2', body.refreshToken);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{labRefresh1}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "3a. Старая сессия -> USED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('статус сессии USED', () => pm.expect(pm.response.json().status).to.eql('USED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/lookup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "lookup"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{labRefresh1}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "3b. Новая сессия -> ACTIVE (тот же deviceId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('статус сессии ACTIVE', () => pm.expect(pm.response.json().status).to.eql('ACTIVE'));",
+                  "pm.test('deviceId сохранён', () => pm.expect(pm.response.json().deviceId).to.eql('postman'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/lookup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "lookup"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{labRefresh2}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "3c. Новый access работает",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "4. Повторный refresh использованного -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{labRefresh1}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "4a. Использованная сессия -> REVOKED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('статус сессии REVOKED', () => pm.expect(pm.response.json().status).to.eql('REVOKED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/lookup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "lookup"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{labRefresh1}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "5. Отозванный refresh -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{labRefresh1}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Access вместо refresh -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{accessToken}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Неверный refresh -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"not.a.jwt\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Refresh без поля -> 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Login: неверный пароль -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{labUser}}\",\n  \"password\": \"wrong\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Login: нет пароля -> 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{labUser}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Login: пустой логин -> 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"\",\n  \"password\": \"{{labPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Login: заблокированный -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"blocked\",\n  \"password\": \"Blocked123\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Регистрация заказчика -> 201, пара (роль LAB игнорируется)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('ровно accessToken и refreshToken', () => pm.expect(Object.keys(body).sort()).to.eql(['accessToken', 'refreshToken']));",
+                  "pm.collectionVariables.set('customerAccess', body.accessToken);",
+                  "pm.collectionVariables.set('customerRefresh', body.refreshToken);",
+                  "pm.collectionVariables.set('customerUser', JSON.parse(pm.request.body.raw).username);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
                 "register"
               ]
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Новый Заказчик\",\n  \"username\": \"cust_{{$timestamp}}\",\n  \"password\": \"{{customerPassword}}\",\n  \"role\": \"LAB\"\n}"
+              "raw": "{\n  \"name\": \"Новый Заказчик\",\n  \"username\": \"cust_{{$timestamp}}\",\n  \"password\": \"{{customerPassword}}\",\n  \"role\": \"LAB\",\n  \"deviceId\": \"postman-customer\"\n}"
             },
             "auth": {
               "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Сессия нового заказчика ACTIVE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('статус сессии ACTIVE', () => pm.expect(pm.response.json().status).to.eql('ACTIVE'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/sessions/lookup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "sessions",
+                "lookup"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{customerRefresh}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Профиль нового заказчика (role = CUSTOMER)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('role = CUSTOMER', () => pm.expect(pm.response.json().role).to.eql('CUSTOMER'));",
+                  "pm.test('пароль не возвращается', () => pm.expect(pm.response.json()).to.not.have.property('password'));",
+                  "pm.collectionVariables.set('customerId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{customerAccess}}",
+                  "type": "string"
+                }
+              ]
             }
           }
         },
@@ -115,7 +976,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status 409', () => pm.response.to.have.status(409));"
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
                 ]
               }
             }
@@ -129,12 +991,11 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/auth/register",
+              "raw": "{{baseUrl}}/auth/register",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "api",
                 "auth",
                 "register"
               ]
@@ -156,7 +1017,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status 400', () => pm.response.to.have.status(400));"
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
                 ]
               }
             }
@@ -170,12 +1032,11 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/auth/register",
+              "raw": "{{baseUrl}}/auth/register",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "api",
                 "auth",
                 "register"
               ]
@@ -190,14 +1051,15 @@
           }
         },
         {
-          "name": "Регистрация без CSRF -> 403",
+          "name": "Регистрация без имени -> 400",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status 403', () => pm.response.to.have.status(403));"
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
                 ]
               }
             }
@@ -211,217 +1073,21 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/auth/register",
+              "raw": "{{baseUrl}}/auth/register",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "api",
                 "auth",
                 "register"
               ]
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Без токена\",\n  \"username\": \"nocsrf_{{$timestamp}}\",\n  \"password\": \"Passw0rd1\"\n}"
+              "raw": "{\n  \"username\": \"noname_{{$timestamp}}\",\n  \"password\": \"Passw0rd1\"\n}"
             },
             "auth": {
               "type": "noauth"
-            }
-          }
-        },
-        {
-          "name": "Профиль нового заказчика",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status 200', () => pm.response.to.have.status(200));",
-                  "pm.collectionVariables.set('customerId', pm.response.json().id);"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/auth/me",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "auth",
-                "me"
-              ]
-            },
-            "auth": {
-              "type": "basic",
-              "basic": [
-                {
-                  "key": "username",
-                  "value": "{{customerUser}}",
-                  "type": "string"
-                },
-                {
-                  "key": "password",
-                  "value": "{{customerPassword}}",
-                  "type": "string"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Без аутентификации -> 401",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status 401', () => pm.response.to.have.status(401));"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/auth/me",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "auth",
-                "me"
-              ]
-            },
-            "auth": {
-              "type": "noauth"
-            }
-          }
-        },
-        {
-          "name": "Неверный пароль -> 401",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status 401', () => pm.response.to.have.status(401));"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/auth/me",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "auth",
-                "me"
-              ]
-            },
-            "auth": {
-              "type": "basic",
-              "basic": [
-                {
-                  "key": "username",
-                  "value": "{{labUser}}",
-                  "type": "string"
-                },
-                {
-                  "key": "password",
-                  "value": "wrong",
-                  "type": "string"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Заблокированный пользователь -> 401",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status 401', () => pm.response.to.have.status(401));"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/auth/me",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "auth",
-                "me"
-              ]
-            },
-            "auth": {
-              "type": "basic",
-              "basic": [
-                {
-                  "key": "username",
-                  "value": "blocked",
-                  "type": "string"
-                },
-                {
-                  "key": "password",
-                  "value": "Blocked123",
-                  "type": "string"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "Lab: изменение без CSRF -> 403",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('status 403', () => pm.response.to.have.status(403));"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/analyses/1/start",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "api",
-                "analyses",
-                "1",
-                "start"
-              ]
             }
           }
         }
@@ -1833,16 +2499,11 @@
     {
       "name": "3. Права заказчика (CUSTOMER)",
       "auth": {
-        "type": "basic",
-        "basic": [
+        "type": "bearer",
+        "bearer": [
           {
-            "key": "username",
-            "value": "{{customerUser}}",
-            "type": "string"
-          },
-          {
-            "key": "password",
-            "value": "{{customerPassword}}",
+            "key": "token",
+            "value": "{{customerAccess}}",
             "type": "string"
           }
         ]
@@ -2252,16 +2913,11 @@
               "raw": "{\n  \"enabled\": false\n}"
             },
             "auth": {
-              "type": "basic",
-              "basic": [
+              "type": "bearer",
+              "bearer": [
                 {
-                  "key": "username",
-                  "value": "{{labUser}}",
-                  "type": "string"
-                },
-                {
-                  "key": "password",
-                  "value": "{{labPassword}}",
+                  "key": "token",
+                  "value": "{{accessToken}}",
                   "type": "string"
                 }
               ]
@@ -2294,6 +2950,88 @@
                 "auth",
                 "me"
               ]
+            }
+          }
+        },
+        {
+          "name": "Заблокированный заказчик: refresh -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{customerRefresh}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Заблокированный заказчик: login -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('новая пара не выдана', () => { const b = pm.response.json(); pm.expect(b).to.not.have.property('accessToken'); pm.expect(b).to.not.have.property('refreshToken'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{customerUser}}\",\n  \"password\": \"{{customerPassword}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
             }
           }
         }
@@ -2480,31 +3218,13 @@
     }
   ],
   "auth": {
-    "type": "basic",
-    "basic": [
+    "type": "bearer",
+    "bearer": [
       {
-        "key": "username",
-        "value": "{{labUser}}",
-        "type": "string"
-      },
-      {
-        "key": "password",
-        "value": "{{labPassword}}",
+        "key": "token",
+        "value": "{{accessToken}}",
         "type": "string"
       }
     ]
-  },
-  "event": [
-    {
-      "listen": "prerequest",
-      "script": {
-        "type": "text/javascript",
-        "exec": [
-          "if (pm.request.method !== 'GET' && !pm.info.requestName.includes('без CSRF')) {",
-          "  pm.request.headers.upsert({ key: 'X-XSRF-TOKEN', value: pm.collectionVariables.get('csrfToken') });",
-          "}"
-        ]
-      }
-    }
-  ]
+  }
 }

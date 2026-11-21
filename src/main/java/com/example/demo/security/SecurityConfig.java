@@ -1,11 +1,16 @@
 package com.example.demo.security;
 
 import com.example.demo.repository.UserRepository;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.ProviderManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -13,32 +18,32 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.session.NullAuthenticatedSessionStrategy;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
-import org.springframework.security.web.csrf.CsrfException;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 @EnableMethodSecurity
+@EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, JwtService jwt,
+                                           UserDetailsService userDetailsService) throws Exception {
         http
-                .csrf(c -> c
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                        .sessionAuthenticationStrategy(new NullAuthenticatedSessionStrategy()))
-                .httpBasic(b -> b.authenticationEntryPoint((req, res, e) ->
-                        JsonError.write(res, 401, "Требуется аутентификация")))
+                // Токен передаётся в заголовке Authorization, а не в cookie, поэтому CSRF-защита не нужна.
+                .csrf(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .addFilterBefore(new JwtAuthenticationFilter(jwt, userDetailsService),
+                        UsernamePasswordAuthenticationFilter.class)
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint((req, res, ex) ->
                                 JsonError.write(res, 401, "Требуется аутентификация"))
-                        .accessDeniedHandler((req, res, ex) -> JsonError.write(res, 403,
-                                ex instanceof CsrfException ? "CSRF-токен отсутствует или неверен" : "Недостаточно прав")))
+                        .accessDeniedHandler((req, res, ex) -> JsonError.write(res, 403, "Недостаточно прав")))
                 .authorizeHttpRequests(a -> a
                         .requestMatchers("/error").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/auth/register").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/auth/login", "/auth/register", "/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/auth/me", "/api/analysis-methods/**").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/samples", "/api/samples/*/reject").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/samples/*").authenticated()
@@ -60,5 +65,13 @@ public class SecurityConfig {
                         .disabled(!u.enabled)
                         .build())
                 .orElseThrow(() -> new UsernameNotFoundException(username));
+    }
+
+    /** Проверка логина и пароля в POST /auth/login. */
+    @Bean
+    public AuthenticationManager authenticationManager(UserDetailsService userDetailsService, PasswordEncoder encoder) {
+        DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
+        provider.setPasswordEncoder(encoder);
+        return new ProviderManager(provider);
     }
 }
